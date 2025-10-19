@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bot Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "telegram_token",
+    "admin_user_id",
+    "context_window",
+    "reaction_threshold",
+    "llm",
+    "vision",
+    "rag"
+  ],
+  "properties": {
+    "telegram_token": { "type": "string", "minLength": 1 },
+    "admin_user_id": { "type": "integer" },
+    "context_window": { "type": "string", "minLength": 1 },
+    "reaction_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+    "llm": { "$ref": "#/definitions/llm_union" },
+    "vision": { "$ref": "#/definitions/vision_union" },
+    "rag": {
+      "type": "object",
+      "required": ["limit", "embedding"],
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1 },
+        "embedding": { "$ref": "#/definitions/embedding_union" }
+      }
+    }
+  },
+  "definitions": {
+    "llm_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_key", "model"],
+      "properties": {
+        "api_key": { "type": "string" },
+        "model": { "type": "string" }
+      }
+    },
+
+    "vision_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_key", "model"],
+      "properties": {
+        "api_key": { "type": "string" },
+        "model": { "type": "string" }
+      }
+    },
+
+    "embedding_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_key", "model", "dimensions"],
+      "properties": {
+        "api_key": { "type": "string" },
+        "model": { "type": "string" },
+        "dimensions": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "openai_llm": { "allOf": [{ "$ref": "#/definitions/llm_base" }] },
+    "xai_llm": { "allOf": [{ "$ref": "#/definitions/llm_base" }] },
+
+    "openai_vision": { "allOf": [{ "$ref": "#/definitions/vision_base" }] },
+
+    "openai_embedding": { "allOf": [{ "$ref": "#/definitions/embedding_base" }] },
+    
+    "llm_union": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["openai"],
+          "properties": { "openai": { "$ref": "#/definitions/openai_llm" } },
+          "additionalProperties": false
+        },
+        {
+          "required": ["xai"],
+          "properties": { "xai": { "$ref": "#/definitions/xai_llm" } },
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "vision_union": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["openai"],
+          "properties": { "openai": { "$ref": "#/definitions/openai_vision" } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    
+    "embedding_union": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["openai"],
+          "properties": {
+            "openai": { "$ref": "#/definitions/openai_embedding" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

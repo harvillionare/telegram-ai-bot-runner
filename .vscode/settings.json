@@ -1,0 +1,13 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": ["bots/**/*.json"],
+      "url": "./config.schema.json"
+    }
+  ],
+  "files.exclude": {
+    "**/.gitkeep": true,
+    "**/__pycache__": true,
+    ".venv/": true
+  }
+}
