@@ -164,17 +164,18 @@ class TelegramBot:
                 await context.bot.send_chat_action(message.chat_id, action=ChatAction.TYPING)
                 logger.info(f'llm_request - chat_id: {message.chat_id} - msg_id: {message.id}')
 
-                # Get recent messages for LLM context
-                context_messages = self.database.get_messages_since(chat_id=message.chat_id, since=self.context_window)
-
-                # Append RAG messages for LLM context
+                # Get RAG messages for LLM context
                 rag_message_ids = self.rag.search(
                     chat_id=message.chat_id, 
                     embedding=embedding, 
                     before=self.context_window
                 )
-                rag_messages = self.database.get_messages(chat_id=message.chat_id, message_ids=rag_message_ids)
-                context_messages.extend(rag_messages)
+                context_messages = self.database.get_messages(chat_id=message.chat_id, message_ids=rag_message_ids)
+
+                # Get recent messages for LLM context
+                context_messages.extend(
+                    self.database.get_messages_since(chat_id=message.chat_id, since=self.context_window)
+                )
 
                 # Make LLM request
                 llm_response = self.llm.generate_response(
