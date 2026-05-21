@@ -4,6 +4,8 @@ from datetime import timedelta
 from functools import partial
 import logging
 from pathlib import Path
+import time
+from typing import Any, cast
 from telegram import (
     File, 
     InlineKeyboardButton, 
@@ -13,6 +15,7 @@ from telegram import (
     User as TelegramUser
 )
 from telegram.constants import ChatAction
+from telegram.error import BadRequest, RetryAfter
 from telegram.ext import (
     Application, 
     CallbackContext, 
@@ -31,6 +34,7 @@ from llm.client import LLMClient
 from prompt import generate_prompt
 from rag import Rag
 from vision.client import VisionClient
+from video.client import VideoClient
 
 ACCESS_APPROVE_PREFIX = 'approve'
 ACCESS_DENY_PREFIX = 'deny'
@@ -62,7 +66,8 @@ class TelegramBot:
         telegram: Application,
         database: Database,
         llm: LLMClient, 
-        vision: VisionClient, 
+        vision: VisionClient,
+        video: VideoClient,
         rag: Rag
     ):
         self.id = id
@@ -75,7 +80,9 @@ class TelegramBot:
         self.telegram = telegram
         self.database = database
         self.llm = llm
+        self.llm = llm
         self.vision = vision
+        self.video = video
         self.rag = rag
         
         self.images_path = path / "images"
@@ -151,7 +158,7 @@ class TelegramBot:
                 created_at=message.date
             )
 
-            bot_mentioned = self.name.lower() in text.lower()
+            bot_mentioned = self.name.lower() in text.lower() or self.username in text
             is_private_chat = message.chat.type == "private"
             is_reply_to_bot = (
                 message.reply_to_message
@@ -186,8 +193,36 @@ class TelegramBot:
                     ),
                     messages=context_messages
                 )
+
                 logger.info(f'llm_response - chat_id: {message.chat_id} - msg_id: {message.id}')
                 logger.debug(f'\n{llm_response.model_dump_json(indent=4)}')
+
+                # Generate video (Tool Call)
+                if llm_response.video_prompt:
+                    await context.bot.send_chat_action(message.chat_id, action=ChatAction.UPLOAD_VIDEO)
+                    
+                    # Check for image input (reply to photo)
+                    image_path = None
+                    if message.reply_to_message and message.reply_to_message.photo:
+                        photo_file = await message.reply_to_message.photo[-1].get_file()
+                        image_path = self.images_path / f"{message.chat_id}-{message.reply_to_message.id}.jpg"
+                        # Only download if not already exists (optimization) or just overwrite
+                        if not image_path.exists():
+                            await photo_file.download_to_drive(image_path)
+                    
+                    try:
+                        video_path = self.video.generate_video(
+                            prompt=text,
+                            image_path=str(image_path) if image_path is not None else None,
+                        )
+                        try:
+                            await message.reply_video(video=open(video_path, 'rb'))
+                        except Exception as e:
+                            logger.error(f"Video generation failed 2: {e}")
+                            await message.reply_text(f"Video generation failed 2: {e}")
+                    except Exception as e:
+                        logger.error(f"Video generation failed: {e}")
+                        await message.reply_text(f"Video generation failed: {e}")
 
                 # Send reaction
                 if llm_response.reaction and llm_response.reaction_strength >= self.reaction_threshold:
@@ -195,10 +230,13 @@ class TelegramBot:
                     logger.info(f'msg_reaction - chat_id: {message.chat_id} - msg_id: {message.id}')
 
                 # Send LLM reply as message
-                llm_sent_message = await message.reply_text(
-                    sanitize_markdown(llm_response.message), 
-                    parse_mode='Markdown'
-                )
+                try:
+                    llm_sent_message = await message.reply_text(
+                        sanitize_markdown(llm_response.message), 
+                        parse_mode='Markdown'
+                    )
+                except Exception:
+                    llm_sent_message = await message.reply_text(llm_response.message)
                 logger.info(f'msg_out - chat_id: {message.chat_id} - msg_id: {message.id}')
 
                 with self.database.Session.begin() as session:
@@ -245,7 +283,7 @@ class TelegramBot:
         if user is None:
             return
 
-        bot_mentioned = caption and self.name.lower() in caption.lower()
+        bot_mentioned = caption and (self.name.lower() in caption.lower() or self.username in caption)
         is_private_chat = message.chat.type == "private"
         is_reply_to_bot = False
         reply_to_id = None 
@@ -303,28 +341,43 @@ class TelegramBot:
                 )
                 logger.info(f'\n{llm_response.model_dump_json(indent=4)}')
 
+                # Generate video (Tool Call)
+                if llm_response.video_prompt and caption:
+                    await context.bot.send_chat_action(message.chat_id, action=ChatAction.UPLOAD_VIDEO)
+                    
+                    try:
+                        # Use the current image as input
+                        video_path = self.video.generate_video(prompt=caption, image_path=str(image_path))
+                        await message.reply_video(video=open(video_path, 'rb'))
+                    except Exception as e:
+                        logger.error(f"Video generation failed: {e}")
+                        await message.reply_text(f"Video generation failed: {e}")
+
                 # Send reaction
                 if llm_response.reaction and llm_response.reaction_strength >= self.reaction_threshold:
                     await message.set_reaction(llm_response.reaction)
 
                 # Send LLM reply as message
-                llm_sent_message = await message.reply_text(
-                    sanitize_markdown(llm_response.message), 
-                    parse_mode='Markdown'
-                )
+                try:
+                    llm_sent_message = await message.reply_text(
+                        sanitize_markdown(llm_response.message), 
+                        parse_mode='Markdown'
+                    )
+                except Exception:
+                    llm_sent_message = await message.reply_text(llm_response.message)
 
                 # Store LLM reply as message
                 if llm_sent_message.from_user:
                     with self.database.Session.begin() as session:
                         llm_message_record = Message(
-                        id=llm_sent_message.id, 
-                        user_id=llm_sent_message.from_user.id, 
-                        chat_id=message.chat_id, 
-                        text=llm_response.message,
-                        created_at=llm_sent_message.date,
-                        reply_to_id=message.id
-                    )
-                    session.add(llm_message_record)
+                            id=llm_sent_message.id, 
+                            user_id=llm_sent_message.from_user.id, 
+                            chat_id=message.chat_id, 
+                            text=llm_response.message,
+                            created_at=llm_sent_message.date,
+                            reply_to_id=message.id
+                        )
+                        session.add(llm_message_record)
         except Exception as e:
             logger.error(f'msg_failed - chat_id: {message.chat_id} - msg_id: {message.id} - error: {e}')
 
@@ -394,3 +447,5 @@ class TelegramBot:
         )
 
         return None
+
+

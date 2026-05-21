@@ -1,11 +1,12 @@
 from telegram.constants import ReactionEmoji
-from typing import List, Optional, Protocol
+from typing import AsyncGenerator, List, Optional, Protocol, Union
 
 from database import Message
 from pydantic import BaseModel, field_validator
 
 class Response(BaseModel):
     message: str
+    video_prompt: Optional[bool] = False
     reaction: Optional[ReactionEmoji] = None
     reaction_strength: float
 

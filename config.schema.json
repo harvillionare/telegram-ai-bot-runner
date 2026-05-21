@@ -10,22 +10,50 @@
     "reaction_threshold",
     "llm",
     "vision",
+    "videogen",
     "rag"
   ],
   "properties": {
-    "telegram_token": { "type": "string", "minLength": 1 },
-    "admin_user_id": { "type": "integer" },
-    "context_window": { "type": "string", "minLength": 1 },
-    "reaction_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-    "llm": { "$ref": "#/definitions/llm_union" },
-    "vision": { "$ref": "#/definitions/vision_union" },
+    "telegram_token": {
+      "type": "string",
+      "minLength": 1
+    },
+    "admin_user_id": {
+      "type": "integer"
+    },
+    "context_window": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reaction_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "llm": {
+      "$ref": "#/definitions/llm_union"
+    },
+    "vision": {
+      "$ref": "#/definitions/vision_union"
+    },
+    "videogen": {
+      "$ref": "#/definitions/videogen_union"
+    },
     "rag": {
       "type": "object",
-      "required": ["limit", "embedding"],
+      "required": [
+        "limit",
+        "embedding"
+      ],
       "additionalProperties": false,
       "properties": {
-        "limit": { "type": "integer", "minimum": 1 },
-        "embedding": { "$ref": "#/definitions/embedding_union" }
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "embedding": {
+          "$ref": "#/definitions/embedding_union"
+        }
       }
     }
   },
@@ -33,75 +61,177 @@
     "llm_base": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["api_key", "model"],
+      "required": [
+        "api_key",
+        "model"
+      ],
       "properties": {
-        "api_key": { "type": "string" },
-        "model": { "type": "string" }
+        "api_key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
       }
     },
-
     "vision_base": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["api_key", "model"],
+      "required": [
+        "api_key",
+        "model"
+      ],
       "properties": {
-        "api_key": { "type": "string" },
-        "model": { "type": "string" }
+        "api_key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
       }
     },
-
+    "videogen_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_key",
+        "model"
+      ],
+      "properties": {
+        "api_key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
     "embedding_base": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["api_key", "model", "dimensions"],
+      "required": [
+        "api_key",
+        "model",
+        "dimensions"
+      ],
       "properties": {
-        "api_key": { "type": "string" },
-        "model": { "type": "string" },
-        "dimensions": { "type": "integer", "minimum": 1 }
+        "api_key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "dimensions": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
-
-    "openai_llm": { "allOf": [{ "$ref": "#/definitions/llm_base" }] },
-    "xai_llm": { "allOf": [{ "$ref": "#/definitions/llm_base" }] },
-
-    "openai_vision": { "allOf": [{ "$ref": "#/definitions/vision_base" }] },
-
-    "openai_embedding": { "allOf": [{ "$ref": "#/definitions/embedding_base" }] },
-    
+    "openai_llm": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/llm_base"
+        }
+      ]
+    },
+    "xai_llm": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/llm_base"
+        }
+      ]
+    },
+    "openai_vision": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/vision_base"
+        }
+      ]
+    },
+    "gemini_videogen": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/videogen_base"
+        }
+      ]
+    },
+    "videogen_union": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": [
+            "gemini"
+          ],
+          "properties": {
+            "gemini": {
+              "$ref": "#/definitions/gemini_videogen"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "openai_embedding": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/embedding_base"
+        }
+      ]
+    },
     "llm_union": {
       "type": "object",
       "oneOf": [
         {
-          "required": ["openai"],
-          "properties": { "openai": { "$ref": "#/definitions/openai_llm" } },
+          "required": [
+            "openai"
+          ],
+          "properties": {
+            "openai": {
+              "$ref": "#/definitions/openai_llm"
+            }
+          },
           "additionalProperties": false
         },
         {
-          "required": ["xai"],
-          "properties": { "xai": { "$ref": "#/definitions/xai_llm" } },
+          "required": [
+            "xai"
+          ],
+          "properties": {
+            "xai": {
+              "$ref": "#/definitions/xai_llm"
+            }
+          },
           "additionalProperties": false
         }
       ]
     },
-
     "vision_union": {
       "type": "object",
       "oneOf": [
         {
-          "required": ["openai"],
-          "properties": { "openai": { "$ref": "#/definitions/openai_vision" } },
+          "required": [
+            "openai"
+          ],
+          "properties": {
+            "openai": {
+              "$ref": "#/definitions/openai_vision"
+            }
+          },
           "additionalProperties": false
         }
       ]
     },
-    
     "embedding_union": {
       "type": "object",
       "oneOf": [
         {
-          "required": ["openai"],
+          "required": [
+            "openai"
+          ],
           "properties": {
-            "openai": { "$ref": "#/definitions/openai_embedding" }
+            "openai": {
+              "$ref": "#/definitions/openai_embedding"
+            }
           },
           "additionalProperties": false
         }

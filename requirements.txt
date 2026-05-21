@@ -34,14 +34,14 @@ opentelemetry-semantic-conventions==0.58b0
 overrides==7.7.0
 packaging==25.0
 propcache==0.4.0
-protobuf==6.32.1
+protobuf
 pyarrow==21.0.0
 pydantic==2.11.9
 pydantic_core==2.33.2
 pylance==0.38.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
-python-telegram-bot==22.5
+python-telegram-bot==22.6
 pytimeparse==1.1.8
 requests==2.32.5
 six==1.17.0
@@ -53,6 +53,7 @@ tqdm==4.67.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.5.0
-xai-sdk==1.2.0
+xai-sdk==1.4.0
 yarl==1.22.0
 zipp==3.23.0
+google-genai

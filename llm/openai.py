@@ -26,26 +26,27 @@ class OpenAILLMClient(LLMClient):
         # Add prompt as the first message
         messages_json.insert(0, {"role": "developer", "content": prompt})
 
-        # Make OpenAI request
         response = self.openai.responses.parse(
             model=self.model,
+            tools=[{"type": "web_search"}],
             input=cast(ResponseInputParam, messages_json),
             text_format=Response,
-            timeout=30
+            timeout=60
         ).output_parsed
 
         if response is None:
             raise RuntimeError('Received empty output_parsed')
         
         return response
+
     
     # Helpers
     # -----------------------------------------
 
     def _build_metadata_string(self, message: Message) -> str:
         metadata: Dict[str, Any] = {
-            "id": message.id,
-            "sender_id": message.user_id,
+            "message_id": message.id,
+            "user_id": message.user_id,
             "created_at": message.created_at.isoformat() if message.created_at else None,
             "reply_to_id": message.reply_to_id,
         }

@@ -17,6 +17,8 @@ from logger import configure_logger, logger
 from rag import Rag
 from vision.client import VisionClient
 from vision.openai import OpenAIVisionClient
+from video.client import VideoClient
+from video.gemini import GeminiVideoClient
 
 def start(folder_name: str):
     bot_path = Path("bots") / folder_name
@@ -92,6 +94,22 @@ def _parse_vision(vision_config_json) -> VisionClient:
     else:
         raise ValueError(f"vision config contained unsupported provider: {vision_config_json}")
 
+def _parse_videogen(videogen_config_json, images_path: Path) -> VideoClient:
+    if "gemini" in videogen_config_json:
+        gemini_videogen_config_json = videogen_config_json["gemini"]
+
+        api_key = gemini_videogen_config_json.get("api_key")
+        if not api_key:
+            raise ValueError("gemini videogen config must contain api_key")
+        
+        model = gemini_videogen_config_json.get("model")
+        if not model:
+            raise ValueError("gemini videogen config must contain model")
+        
+        return GeminiVideoClient(api_key=api_key, model=model, images_path=images_path)
+    else:
+        raise ValueError(f"videogen config contained unsupported provider: {videogen_config_json}")
+
 def _parse_rag(rag_config_json, path: Path) -> Rag:    
     limit = rag_config_json.get("limit")
     if not limit:
@@ -155,6 +173,12 @@ async def telegram_post_init(config_json, identity: str, path: Path, self: Appli
     
     vision = _parse_vision(vision_config_json=vision_config_json)
 
+    videogen_config_json = config_json.get("videogen")
+    if not videogen_config_json:
+        raise ValueError("config must contain videogen")
+
+    video = _parse_videogen(videogen_config_json=videogen_config_json, images_path=path / "images")
+
     rag_config_json = config_json.get("rag")
     if not rag_config_json:
         raise ValueError("config must contain rag")
@@ -186,6 +210,7 @@ async def telegram_post_init(config_json, identity: str, path: Path, self: Appli
         database=database,
         llm=llm, 
         vision=vision,
+        video=video,
         rag=rag
     )
     await telegram_bot.start()
