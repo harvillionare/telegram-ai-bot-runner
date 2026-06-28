@@ -2,6 +2,11 @@ import asyncio
 import base64
 from datetime import timedelta
 from functools import partial
+import json
+import logging
+import os
+import sys
+import uuid
 import logging
 from pathlib import Path
 import time
@@ -39,6 +44,8 @@ from video.client import VideoClient
 ACCESS_APPROVE_PREFIX = 'approve'
 ACCESS_DENY_PREFIX = 'deny'
 ACCESS_DELIMITER = '_'
+MODIFY_APPROVE_PREFIX = 'mod_approve'
+MODIFY_DENY_PREFIX = 'mod_deny'
 
 # Class to handle error logs and send an alert
 class AdminAlertHandler(logging.Handler):
@@ -102,6 +109,31 @@ class TelegramBot:
         
         commands = []
         await self.telegram.bot.set_my_commands(commands=commands)
+
+        # Check for hot-reload state
+        reload_file = self.images_path.parent / "reload_state.json"
+        if reload_file.exists():
+            try:
+                with open(reload_file, "r") as f:
+                    state = json.load(f)
+                
+                chat_id = state.get("chat_id")
+                reply_to_message_id = state.get("reply_to_message_id")
+                message_text = state.get("message")
+                
+                if chat_id and message_text:
+                    await self.telegram.bot.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        reply_to_message_id=reply_to_message_id
+                    )
+            except Exception as e:
+                logger.error(f"Failed to process reload state: {e}")
+            finally:
+                try:
+                    os.remove(reload_file)
+                except OSError:
+                    pass
 
     # -----------------------------------------
     # Commands
@@ -196,6 +228,9 @@ class TelegramBot:
 
                 logger.info(f'llm_response - chat_id: {message.chat_id} - msg_id: {message.id}')
                 logger.debug(f'\n{llm_response.model_dump_json(indent=4)}')
+
+                # Code Modification Request
+                await self._handle_modification_request(llm_response, message, from_user)
 
                 # Generate video (Tool Call)
                 if llm_response.video_prompt:
@@ -341,6 +376,9 @@ class TelegramBot:
                 )
                 logger.info(f'\n{llm_response.model_dump_json(indent=4)}')
 
+                # Code Modification Request
+                await self._handle_modification_request(llm_response, message, from_user)
+
                 # Generate video (Tool Call)
                 if llm_response.video_prompt and caption:
                     await context.bot.send_chat_action(message.chat_id, action=ChatAction.UPLOAD_VIDEO)
@@ -416,6 +454,34 @@ class TelegramBot:
             # Notify admin
             if isinstance(update.callback_query.message, TelegramMessage):
                 await update.callback_query.message.reply_text(f"User with ID {user_id} was denied.")
+                
+        elif update.callback_query.data.startswith(MODIFY_APPROVE_PREFIX):
+            args = update.callback_query.data.split(ACCESS_DELIMITER)
+            request_id = args[1]
+            
+            pending_file = self.images_path.parent / "pending_modifications.json"
+            pending = {}
+            if pending_file.exists():
+                with open(pending_file, "r") as f:
+                    try:
+                        pending = json.load(f)
+                    except json.JSONDecodeError:
+                        pass
+                        
+            request_data = pending.get(request_id)
+            if not request_data:
+                if isinstance(update.callback_query.message, TelegramMessage):
+                    await update.callback_query.message.reply_text("Modification request not found or already processed.")
+            else:
+                if isinstance(update.callback_query.message, TelegramMessage):
+                    await update.callback_query.message.reply_text("Modification approved. Executing...")
+                
+                # Execute in background so we don't block the callback query
+                asyncio.create_task(self._execute_modification(request_data, update.callback_query.message))
+                
+        elif update.callback_query.data.startswith(MODIFY_DENY_PREFIX):
+            if isinstance(update.callback_query.message, TelegramMessage):
+                await update.callback_query.message.reply_text("Modification request denied.")
 
         # Acknowledge the callback query
         await update.callback_query.answer()
@@ -448,4 +514,87 @@ class TelegramBot:
 
         return None
 
+    async def _handle_modification_request(self, llm_response, message, from_user):
+        if not getattr(llm_response, "modification_prompt", None):
+            return False
 
+        request_id = str(uuid.uuid4())
+        
+        pending_file = self.images_path.parent / "pending_modifications.json"
+        pending = {}
+        if pending_file.exists():
+            with open(pending_file, "r") as f:
+                try:
+                    pending = json.load(f)
+                except json.JSONDecodeError:
+                    pass
+        
+        pending[request_id] = {
+            "chat_id": message.chat_id,
+            "reply_to_message_id": message.id,
+            "prompt": llm_response.modification_prompt
+        }
+        with open(pending_file, "w") as f:
+            json.dump(pending, f)
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("Approve", callback_data=f'{MODIFY_APPROVE_PREFIX}{ACCESS_DELIMITER}{request_id}'),
+                InlineKeyboardButton("Deny", callback_data=f'{MODIFY_DENY_PREFIX}{ACCESS_DELIMITER}{request_id}')
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await self.telegram.bot.send_message(
+                chat_id=self.admin_user_id,
+                text=f"Code modification requested by {from_user.first_name}:\n\n{llm_response.modification_prompt}\n\nApprove execution?",
+                reply_markup=reply_markup
+            )
+            await message.reply_text("I have requested admin approval to make this code change.")
+        except Exception as e:
+            logger.error(f"Failed to send modification request: {e}")
+            
+        return True
+
+    async def _execute_modification(self, request_data, message):
+        from google_antigravity import LocalAgentConfig, Agent
+        
+        # We need the parent directory of 'bots/folder_name' to get the workspace root
+        workspace_dir = str(self.images_path.parent.parent.parent)
+        
+        config = LocalAgentConfig(
+            workspace=workspace_dir,
+            instructions="You are an expert Python developer modifying a Telegram bot. Fulfill the user's request. Modify the files directly."
+        )
+        agent = Agent(config)
+        
+        try:
+            await asyncio.to_thread(agent.run, task=request_data["prompt"])
+            
+            # Auto-commit the changes
+            import subprocess
+            try:
+                commit_message = f"Auto-modification: {request_data['prompt'][:50]}..."
+                subprocess.run(["git", "add", "."], cwd=workspace_dir, check=True)
+                subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_dir, check=True)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to commit changes: {e}")
+            
+            reload_file = self.images_path.parent / "reload_state.json"
+            with open(reload_file, "w") as f:
+                json.dump({
+                    "chat_id": request_data["chat_id"],
+                    "reply_to_message_id": request_data["reply_to_message_id"],
+                    "message": "I have successfully modified my code and restarted! Let me know if the changes look good."
+                }, f)
+                
+            if isinstance(message, TelegramMessage):
+                await message.reply_text("Execution complete. Restarting bot...")
+                
+            os.execv(sys.executable, ['python'] + sys.argv)
+            
+        except Exception as e:
+            logger.error(f"Agent execution failed: {e}")
+            if isinstance(message, TelegramMessage):
+                await message.reply_text(f"Agent execution failed: {e}")

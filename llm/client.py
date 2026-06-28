@@ -6,6 +6,7 @@ from pydantic import BaseModel, field_validator
 
 class Response(BaseModel):
     message: str
+    modification_prompt: Optional[str] = None
     video_prompt: Optional[bool] = False
     reaction: Optional[ReactionEmoji] = None
     reaction_strength: float
