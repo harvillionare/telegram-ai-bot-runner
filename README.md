@@ -123,3 +123,45 @@ python3 run.py {BOT_FOLDER_NAME}
    ```
 
 3. In VS Code, select your configuration from the Run and Debug panel (or press F5) to start debugging.
+
+## Running a Bot as a Background Service (macOS)
+
+Run each bot as a launchd agent so no terminal or AI chat owns the process. It starts when you log in, restarts if it crashes, and anyone (or any agent) can restart it after a code change.
+
+1. Create `~/Library/LaunchAgents/me.<you>.<bot>.plist` (replace `REPO` with the absolute path to this repo, and `BOT_FOLDER_NAME` and the label to match):
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+     <key>Label</key><string>me.you.bot</string>
+     <key>WorkingDirectory</key><string>REPO</string>
+     <key>ProgramArguments</key>
+     <array>
+       <string>REPO/.venv/bin/python</string>
+       <string>run.py</string>
+       <string>BOT_FOLDER_NAME</string>
+     </array>
+     <key>EnvironmentVariables</key>
+     <dict><key>PYTHONUNBUFFERED</key><string>1</string></dict>
+     <key>RunAtLoad</key><true/>
+     <key>KeepAlive</key><true/>
+     <key>ThrottleInterval</key><integer>10</integer>
+     <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/BOT_FOLDER_NAME.log</string>
+     <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/BOT_FOLDER_NAME.log</string>
+   </dict>
+   </plist>
+   ```
+
+2. Manage it:
+
+   ```bash
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/me.you.bot.plist   # start (and enable at login)
+   launchctl kickstart -k gui/$(id -u)/me.you.bot                              # restart after code changes
+   launchctl bootout gui/$(id -u)/me.you.bot                                   # stop
+   launchctl print gui/$(id -u)/me.you.bot | grep -E "state|pid"               # status
+   tail -f ~/Library/Logs/BOT_FOLDER_NAME.log                                  # logs
+   ```
+
+Only run one copy of a bot at a time. Telegram allows a single poller per token, and a second copy causes `Conflict` errors.
